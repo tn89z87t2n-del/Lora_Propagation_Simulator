@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LoRa Link Planner — Propagation Simulator</title>
+<style>
+/* ===================== ZÁKLADNÝ VZHĽAD (tmavá téma, glassmorphism) ===================== */
+:root{
+  --bg:#0a0e17;
+  --glass:rgba(13,18,30,0.62);
+  --glass-border:rgba(255,255,255,0.09);
+  --text:#dbe4f0;
+  --text-dim:#8494ab;
+  --accent:#4cc2ff;
+  --good:#3ddc84;
+  --warn:#ffc145;
+  --bad:#ff5252;
+  --mono:'JetBrains Mono','SF Mono','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
+  --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px}
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.panel{
+  position:fixed;background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:14px;backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);
+  box-shadow:0 8px 32px rgba(0,0,0,0.45);padding:14px;z-index:10;
+}
+#leftPanel{top:12px;left:12px;width:268px;max-height:calc(100vh - 24px);overflow-y:auto}
+#readout{top:12px;right:12px;width:248px}
+#chartPanel{bottom:12px;right:12px;width:430px;padding:10px}
+#hintBar{bottom:12px;left:12px;padding:7px 12px;font-size:11px;color:var(--text-dim)}
+.panel h1{font-size:15px;letter-spacing:0.4px;margin-bottom:2px;color:#fff}
+.panel h1 .dot{color:var(--accent)}
+.sub{font-size:10px;color:var(--text-dim);margin-bottom:10px}
+.sec{margin-top:12px;border-top:1px solid rgba(255,255,255,0.07);padding-top:10px}
+.sec:first-of-type{border-top:none;margin-top:6px;padding-top:0}
+.sec h2{font-size:10px;text-transform:uppercase;letter-spacing:1.4px;color:var(--accent);margin-bottom:8px;font-weight:600}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+.row label{color:var(--text-dim);font-size:12px;white-space:nowrap}
+.row .val{font-family:var(--mono);font-size:11px;color:var(--text);min-width:56px;text-align:right}
+input[type=range]{flex:1;accent-color:var(--accent);height:14px;min-width:60px}
+select,input[type=text],input[type=number]{
+  background:rgba(255,255,255,0.06);border:1px solid var(--glass-border);color:var(--text);
+  border-radius:7px;padding:4px 7px;font-family:var(--mono);font-size:12px;outline:none;width:90px;
+}
+select:focus,input:focus{border-color:var(--accent)}
+input[type=number]{width:64px;text-align:right}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+button{
+  background:linear-gradient(135deg,#1b6dd1,#3ba0e8);border:none;color:#fff;border-radius:8px;
+  padding:6px 10px;font-size:12px;cursor:pointer;font-weight:600;letter-spacing:0.3px;
+}
+button:hover{filter:brightness(1.18)}
+button.ghost{background:rgba(255,255,255,0.08);font-weight:500}
+/* tabuľka citlivostí podľa SF */
+table#sfTable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10.5px;margin-top:4px}
+#sfTable th{color:var(--text-dim);font-weight:500;text-align:right;padding:2px 4px;font-size:9.5px;text-transform:uppercase}
+#sfTable th:first-child{text-align:left}
+#sfTable td{padding:2.5px 4px;text-align:right;cursor:pointer;border-radius:4px;color:var(--text-dim)}
+#sfTable td:first-child{text-align:left}
+#sfTable tr.sel td{background:rgba(76,194,255,0.14);color:#fff}
+#sfTable tr:hover td{background:rgba(255,255,255,0.06)}
+/* panel s výsledkami */
+.ro{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12px}
+.ro span:first-child{color:var(--text-dim)}
+.ro span:last-child{font-family:var(--mono)}
+#marginBox{
+  margin-top:10px;padding:10px;border-radius:10px;text-align:center;
+  background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);
+}
+#marginBox .lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim)}
+#marginVal{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1.15}
+#linkStatus{font-size:11px;font-weight:700;letter-spacing:1.5px;margin-top:2px}
+.c-good{color:var(--good)} .c-warn{color:var(--warn)} .c-bad{color:var(--bad)}
+#chart{display:block;width:100%;height:170px}
+#chartPanel .sub{margin-bottom:4px}
+kbd{background:rgba(255,255,255,0.1);border-radius:4px;padding:1px 5px;font-family:var(--mono);font-size:10px}
+@media (max-width:980px){
+  #chartPanel{display:none}
+  #readout{width:200px}
+}
+::-webkit-scrollbar{width:7px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:4px}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<!-- ===================== ĽAVÝ PANEL: OVLÁDANIE ===================== -->
+<div class="panel" id="leftPanel">
+  <h1>LoRa Link Planner<span class="dot">▮</span></h1>
+  <div class="sub">terrain · Fresnel · knife-edge diffraction · link budget</div>
+
+  <div class="sec">
+    <h2>Terrain</h2>
+    <div class="row"><label>Preset</label>
+      <select id="preset">
+        <option value="flat">Flat plain</option>
+        <option value="hills" selected>Rolling hills</option>
+        <option value="valley">Mountain valley</option>
+        <option value="urban">Urban</option>
+      </select>
+    </div>
+    <div class="row"><label>Roughness</label><input type="range" id="rough" min="0" max="1" step="0.01" value="0.5"><span class="val" id="roughVal">0.50</span></div>
+    <div class="row"><label>Seed</label><input type="text" id="seed" value="lora-42" style="width:108px"></div>
+    <div class="row" style="gap:6px">
+      <button id="regenBtn" style="flex:1">↻ Regenerate</button>
+      <button class="ghost" id="diceBtn" title="Random seed">🎲</button>
+    </div>
+    <div class="row"><label>Span</label><input type="range" id="dist" min="0" max="1000" step="1" value="741"><span class="val" id="distVal">10.0 km</span></div>
+    <div class="row"><label>Earth curvature (k=4/3)</label><input type="checkbox" id="curv"></div>
+  </div>
+
+  <div class="sec">
+    <h2>Antennas</h2>
+    <div class="row"><label>TX height</label><input type="range" id="txH" min="1" max="100" step="1" value="12"><span class="val" id="txHVal">12 m</span></div>
+    <div class="row"><label>RX height</label><input type="range" id="rxH" min="1" max="100" step="1" value="10"><span class="val" id="rxHVal">10 m</span></div>
+  </div>
+
+  <div class="sec">
+    <h2>Radio / link budget</h2>
+    <div class="row"><label>Frequency</label>
+      <select id="freq">
+        <option value="433">433 MHz</option>
+        <option value="868" selected>868 MHz (EU)</option>
+        <option value="915">915 MHz</option>
+      </select>
+    </div>
+    <div class="row"><label>TX power</label><input type="number" id="txPwr" min="-10" max="33" step="1" value="22"><span class="val">dBm</span></div>
+    <div class="row"><label>TX ant. gain</label><input type="number" id="gTx" min="-10" max="30" step="0.1" value="2.1"><span class="val">dBi</span></div>
+    <div class="row"><label>RX ant. gain</label><input type="number" id="gRx" min="-10" max="30" step="0.1" value="2.1"><span class="val">dBi</span></div>
+    <div class="row"><label>Cable losses</label><input type="number" id="cable" min="0" max="30" step="0.1" value="1"><span class="val">dB</span></div>
+    <div class="row"><label>Spreading factor</label>
+      <select id="sf">
+        <option value="7">SF7</option><option value="8">SF8</option>
+        <option value="9" selected>SF9</option><option value="10">SF10</option>
+        <option value="11">SF11</option><option value="12">SF12</option>
+      </select>
+    </div>
+    <table id="sfTable">
+      <tr><th>SF</th><th>Sens.</th><th>Rate</th></tr>
+    </table>
+  </div>
+
+  <div class="sec">
+    <h2>View</h2>
+    <div class="row"><label>Signal heat overlay</label><input type="checkbox" id="heat"></div>
+  </div>
+</div>
+
+<!-- ===================== PRAVÝ PANEL: VÝSLEDKY ===================== -->
+<div class="panel" id="readout">
+  <div class="sec" style="margin-top:0;padding-top:0;border:none">
+    <h2>Link readout</h2>
+    <div class="ro"><span>Distance</span><span id="roDist">—</span></div>
+    <div class="ro"><span>FSPL</span><span id="roFspl">—</span></div>
+    <div class="ro"><span>Diffraction loss</span><span id="roDiff">—</span></div>
+    <div class="ro"><span>Fresnel clearance</span><span id="roFres">—</span></div>
+    <div class="ro"><span>RX power</span><span id="roRx">—</span></div>
+    <div class="ro"><span>Sensitivity</span><span id="roSens">—</span></div>
+    <div class="ro"><span>Data rate</span><span id="roRate">—</span></div>
+    <div id="marginBox">
+      <div class="lbl">Link margin</div>
+      <div id="marginVal">—</div>
+      <div id="linkStatus">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== GRAF: RX VÝKON vs. VZDIALENOSŤ ===================== -->
+<div class="panel" id="chartPanel">
+  <div class="sub">RX power vs distance (RX swept along terrain from TX) · dashed = SF sensitivity</div>
+  <canvas id="chart"></canvas>
+</div>
+
+<div class="panel" id="hintBar">
+  Drag <b>TX</b>/<b>RX</b> towers (tip follows pointer) · <kbd>←→</kbd> move · <kbd>↑↓</kbd> antenna height · <kbd>R</kbd> new terrain
+</div>
+
+<script>
+'use strict';
+/* =========================================================================
+   LoRa Link Planner — simulátor šírenia signálu na 2D profile terénu.
+   Sekcie: KONFIGURÁCIA A STAV · POMOCNÉ FUNKCIE · GENEROVANIE TERÉNU ·
+           RF MATEMATIKA · ANALÝZA SPOJA · VYKRESĽOVANIE · GRAF · UI
+   Komentáre po slovensky, identifikátory po anglicky.
+   ========================================================================= */
+
+/* ===================== KONFIGURÁCIA A STAV ===================== */
+
+const TERRAIN_SAMPLES = 1024;          // počet vzoriek výškového profilu
+const EARTH_RADIUS = 6371000;          // polomer Zeme [m]
+const K_FACTOR = 4 / 3;                // efektívny činiteľ polomeru (štandardná refrakcia)
+const SPEED_OF_LIGHT = 299792458;      // [m/s]
+const MIN_SEPARATION = 50;             // minimálna vzdialenosť TX–RX [m]
+
+// Citlivosť RX podľa spreading factora (typické SX127x, BW 125 kHz) [dBm]
+// a orientačná bitová rýchlosť [bps] (BW 125 kHz, CR 4/5, SF11/12 s LowDataRateOptimize)
+const SF_TABLE = {
+  7:  { sens: -124, rate: 5470 },
+  8:  { sens: -127, rate: 3125 },
+  9:  { sens: -130, rate: 1760 },
+  10: { sens: -133, rate:  980 },
+  11: { sens: -135, rate:  440 },
+  12: { sens: -137, rate:  250 },
+};
+
+// Globálny stav aplikácie — všetky vstupy používateľa
+const state = {
+  seed: 'lora-42',
+  preset: 'hills',
+  roughness: 0.5,
+  spanM: 10000,        // dĺžka zobrazeného terénu [m] (100 m … 50 km)
+  txX: 400,            // poloha TX pozdĺž profilu [m]
+  rxX: 9600,           // poloha RX pozdĺž profilu [m]
+  txH: 12,             // výška TX antény nad terénom [m]
+  rxH: 10,
+  freqMHz: 868,
+  sf: 9,
+  txPowerDbm: 22,
+  gainTxDbi: 2.1,
+  gainRxDbi: 2.1,
+  cableLossDb: 1,
+  curvature: false,    // zakrivenie Zeme s k = 4/3
+  heatOverlay: false,
+  selected: 'tx',      // ktorá anténa je vybraná (klávesnica)
+};
+
+let terrain = new Float64Array(TERRAIN_SAMPLES); // výšky terénu [m]
+let analysis = null;   // výsledok analyzePath pre aktuálny spoj
+let budget = null;     // výsledok link budgetu
+let sweep = null;      // dáta pre graf (RX power vs. vzdialenosť)
+let paramsDirty = true; // treba prepočítať fyziku?
+
+/* ===================== POMOCNÉ FUNKCIE ===================== */
+
+// Deterministický PRNG (mulberry32) — rovnaký seed ⇒ rovnaký terén
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Hash reťazca seedu na 32-bit číslo (FNV-1a)
+function hashSeed(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => t * t * (3 - 2 * t); // smoothstep pre interpoláciu šumu
+
+// Formátovanie vzdialenosti: metre alebo kilometre
+function fmtDist(m) {
+  return m < 1000 ? m.toFixed(0) + ' m' : (m / 1000).toFixed(m < 10000 ? 2 : 1) + ' km';
+}
+
+// „Pekný" krok pre osové značky (1/2/5 × 10^n)
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw / p;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
+
+/* ===================== GENEROVANIE TERÉNU ===================== */
+
+// 1D hodnotový šum: náhodné hodnoty na mriežke + hladká interpolácia
+function valueNoise1D(rng, n, period) {
+  const lattice = [];
+  const count = Math.ceil(n / period) + 2;
+  for (let i = 0; i < count; i++) lattice.push(rng() * 2 - 1);
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = i / period;
+    const i0 = Math.floor(x);
+    out[i] = lerp(lattice[i0], lattice[i0 + 1], smooth(x - i0));
+  }
+  return out;
+}
+
+// Fraktálny (fBm) šum — súčet oktáv s klesajúcou amplitúdou
+function fbmNoise(rng, n, octaves, persistence, basePeriod) {
+  const out = new Float64Array(n);
+  let amp = 1, period = basePeriod, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const layer = valueNoise1D(rng, n, Math.max(2, period));
+    for (let i = 0; i < n; i++) out[i] += layer[i] * amp;
+    total += amp;
+    amp *= persistence;
+    period /= 2;
+  }
+  for (let i = 0; i < n; i++) out[i] /= total;
+  return out;
+}
+
+// Hlavné generovanie terénu podľa presetu, drsnosti a seedu
+function generateTerrain() {
+  const rng = mulberry32(hashSeed(state.seed + '|' + state.preset));
+  const n = TERRAIN_SAMPLES;
+  const r = state.roughness;
+  const persistence = 0.35 + 0.38 * r; // drsnosť ⇒ viac energie vo vysokých frekvenciách
+  let noise, amp, base;
+
+  switch (state.preset) {
+    case 'flat':
+      noise = fbmNoise(rng, n, 4, persistence, n / 3);
+      amp = 4 + 10 * r; base = 40;
+      for (let i = 0; i < n; i++) terrain[i] = base + noise[i] * amp;
+      break;
+
+    case 'valley': {
+      // Údolie: vysoké okraje, nízky stred (parabolická obálka) + fraktálny šum
+      noise = fbmNoise(rng, n, 6, persistence, n / 5);
+      amp = 60 + 160 * r;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const envelope = Math.pow(2 * t - 1, 2);       // 1 na okrajoch, 0 v strede
+        terrain[i] = 60 + 520 * envelope + noise[i] * amp * (0.35 + 0.65 * envelope);
+      }
+      break;
+    }
+
+    case 'urban': {
+      // Mesto: takmer rovina + obdĺžnikové „budovy"
+      noise = fbmNoise(rng, n, 3, 0.4, n / 4);
+      base = 35;
+      for (let i = 0; i < n; i++) terrain[i] = base + noise[i] * (2 + 4 * r);
+      let i = 8 + Math.floor(rng() * 10);
+      while (i < n - 12) {
+        const w = 4 + Math.floor(rng() * 12);                 // šírka budovy vo vzorkách
+        const h = 8 + rng() * (25 + 45 * r);                  // výška budovy [m]
+        for (let j = i; j < Math.min(n, i + w); j++) terrain[j] += h;
+        i += w + 3 + Math.floor(rng() * 14);                  // medzera medzi budovami
+      }
+      break;
+    }
+
+    case 'hills':
+    default:
+      noise = fbmNoise(rng, n, 6, persistence, n / 4);
+      amp = 30 + 120 * r; base = 80;
+      for (let i = 0; i < n; i++) terrain[i] = base + noise[i] * amp;
+      break;
+  }
+
+  // Terén nesmie ísť pod nulu
+  let min = Infinity;
+  for (let i = 0; i < n; i++) min = Math.min(min, terrain[i]);
+  if (min < 5) for (let i = 0; i < n; i++) terrain[i] += 5 - min;
+
+  paramsDirty = true;
+}
+
+// Výška terénu v polohe x [m] — lineárna interpolácia medzi vzorkami
+function terrainAt(x) {
+  const fi = clamp(x / state.spanM, 0, 1) * (TERRAIN_SAMPLES - 1);
+  const i0 = Math.floor(fi);
+  const i1 = Math.min(TERRAIN_SAMPLES - 1, i0 + 1);
+  return lerp(terrain[i0], terrain[i1], fi - i0);
+}
+
+// Vydutie Zeme [m] v polohe x — parabolická aproximácia s efektívnym polomerom k·R
+function earthBulge(x) {
+  if (!state.curvature) return 0;
+  return (x * (state.spanM - x)) / (2 * K_FACTOR * EARTH_RADIUS);
+}
+
+// Efektívna výška terénu = terén + vydutie Zeme (ak je zapnuté)
+function effTerrainAt(x) {
+  return terrainAt(x) + earthBulge(x);
+}
+
+/* ===================== RF MATEMATIKA ===================== */
+
+// Strata vo voľnom priestore: FSPL(dB) = 20·log10(d_km) + 20·log10(f_MHz) + 32.45
+function fsplDb(dKm, fMHz) {
+  return 20 * Math.log10(Math.max(dKm, 1e-4)) + 20 * Math.log10(fMHz) + 32.45;
+}
+
+// Polomer 1. Fresnelovej zóny [m]: r = 17.32·√(d1·d2 / (d·f_GHz)), d v km
+function fresnelRadius(d1Km, d2Km, dKm, fGHz) {
+  return 17.32 * Math.sqrt((d1Km * d2Km) / (dKm * fGHz));
+}
+
+// Fresnelov-Kirchhoffov difrakčný parameter v pre jednu prekážku
+// v = h·√(2d / (λ·d1·d2)); h = výška prekážky nad spojnicou LOS [m]
+function fresnelV(h, d1, d2, d, lambda) {
+  return h * Math.sqrt((2 * d) / (lambda * d1 * d2));
+}
+
+// Difrakčná strata na jednej „britve" (single knife-edge),
+// aproximácia podľa ITU-R P.526: J(v) = 6.9 + 20·log10(√((v−0.1)²+1) + v − 0.1)
+function knifeEdgeLossDb(v) {
+  if (v <= -0.78) return 0;
+  return 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) * (v - 0.1) + 1) + v - 0.1);
+}
+
+/* ===================== ANALÝZA SPOJA ===================== */
+
+// Analýza profilu medzi dvomi bodmi: LOS, Fresnelova zóna, dominantná prekážka.
+// txX/rxX [m] pozdĺž profilu, txH/rxH výšky antén nad terénom, steps = počet vzoriek.
+function analyzePath(txX, rxX, txH, rxH, steps) {
+  const d = Math.abs(rxX - txX);
+  const fMHz = state.freqMHz;
+  const fGHz = fMHz / 1000;
+  const lambda = SPEED_OF_LIGHT / (fMHz * 1e6);
+
+  const txTipY = effTerrainAt(txX) + txH;   // vrchol TX antény [m n. m.]
+  const rxTipY = effTerrainAt(rxX) + rxH;
+
+  let maxV = -Infinity, maxVX = 0;          // dominantná prekážka (najväčší parameter v)
+  let minRatio = Infinity, minRatioX = 0;   // najhoršia voľnosť Fresnelovej zóny
+  let blockedX = null;                      // prvý bod, kde terén pretína LOS
+  let maxR1 = 0;
+
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = txX + (rxX - txX) * t;
+    const d1 = d * t, d2 = d * (1 - t);
+    if (d1 < 1 || d2 < 1) continue;         // tesne pri anténach polomer → 0, preskočiť
+
+    const losY = lerp(txTipY, rxTipY, t);
+    const ground = effTerrainAt(x);
+    const h = ground - losY;                // h > 0 ⇒ terén nad spojnicou (prekážka)
+
+    const r1 = fresnelRadius(d1 / 1000, d2 / 1000, d / 1000, fGHz);
+    maxR1 = Math.max(maxR1, r1);
+    const ratio = -h / r1;                  // voľnosť v násobkoch r1 (1.0 = celá zóna voľná)
+    if (ratio < minRatio) { minRatio = ratio; minRatioX = x; }
+
+    const v = fresnelV(h, d1, d2, d, lambda);
+    if (v > maxV) { maxV = v; maxVX = x; }
+
+    if (h > 0 && blockedX === null) blockedX = x;
+  }
+
+  const diffLossDb = knifeEdgeLossDb(maxV);
+  const clearancePct = clamp(minRatio, -9.99, 1) * 100; // % polomeru 1. zóny
+
+  return {
+    d, txTipY, rxTipY,
+    fsplDb: fsplDb(d / 1000, fMHz),
+    diffLossDb,
+    maxV, maxVX,
+    clearancePct, minRatioX,
+    blocked: blockedX !== null,
+    blockedX,
+    maxR1,
+    lambda, fGHz,
+  };
+}
+
+// Link budget: RX power = TXpower + zisky − FSPL − difrakčná strata − straty káblov
+function computeBudget(a) {
+  const sens = SF_TABLE[state.sf].sens;
+  const rxPower = state.txPowerDbm + state.gainTxDbi + state.gainRxDbi
+                - a.fsplDb - a.diffLossDb - state.cableLossDb;
+  return {
+    rxPower,
+    sens,
+    margin: rxPower - sens,
+    rate: SF_TABLE[state.sf].rate,
+  };
+}
+
+// Sweep pre graf: RX sa posúva po teréne od TX smerom k aktuálnemu RX až po okraj
+function computeSweep() {
+  const dir = state.rxX >= state.txX ? 1 : -1;
+  const maxD = dir > 0 ? state.spanM - state.txX : state.txX;
+  const points = [];
+  const N = 220;
+  for (let i = 1; i <= N; i++) {
+    const dist = MIN_SEPARATION + (maxD - MIN_SEPARATION) * (i / N);
+    if (dist <= 0) break;
+    const rxX = state.txX + dir * dist;
+    const a = analyzePath(state.txX, rxX, state.txH, state.rxH, 160);
+    const p = state.txPowerDbm + state.gainTxDbi + state.gainRxDbi
+            - a.fsplDb - a.diffLossDb - state.cableLossDb;
+    points.push({ dist, power: p });
+  }
+  return { points, maxD };
+}
+
+// Prepočet celej fyziky (volané z hlavnej slučky, len keď sa niečo zmenilo)
+function recompute() {
+  analysis = analyzePath(state.txX, state.rxX, state.txH, state.rxH, 600);
+  budget = computeBudget(analysis);
+  sweep = computeSweep();
+  updateReadout();
+  drawChart();
+  paramsDirty = false;
+}
+
+/* ===================== VYKRESĽOVANIE SCÉNY ===================== */
+
+const sceneCanvas = document.getElementById('scene');
+const sctx = sceneCanvas.getContext('2d');
+let view = { yMin: 0, yMax: 100, padL: 56, padR: 16, padT: 30, padB: 42, w: 0, h: 0 };
+
+// Prepočet rozsahu zvislej osi tak, aby sa zmestil terén, antény aj Fresnelova zóna
+function computeView() {
+  const w = sceneCanvas.clientWidth, h = sceneCanvas.clientHeight;
+  view.w = w; view.h = h;
+  let tMin = Infinity, tMax = -Infinity;
+  for (let i = 0; i < TERRAIN_SAMPLES; i++) {
+    const y = terrain[i] + earthBulge(i / (TERRAIN_SAMPLES - 1) * state.spanM);
+    tMin = Math.min(tMin, y); tMax = Math.max(tMax, y);
+  }
+  let top = Math.max(tMax, analysis.txTipY, analysis.rxTipY,
+                     Math.max(analysis.txTipY, analysis.rxTipY) + analysis.maxR1);
+  const range = Math.max(40, top - tMin);
+  view.yMin = tMin - range * 0.08;
+  view.yMax = top + range * 0.22;
+}
+
+const sx = x => view.padL + (x / state.spanM) * (view.w - view.padL - view.padR);
+const sy = y => view.h - view.padB - ((y - view.yMin) / (view.yMax - view.yMin)) * (view.h - view.padT - view.padB);
+const invSx = px => (px - view.padL) / (view.w - view.padL - view.padR) * state.spanM;
+const invSy = py => view.yMin + (view.h - view.padB - py) / (view.h - view.padT - view.padB) * (view.yMax - view.yMin);
+
+// Farba podľa stavu Fresnelovej zóny: ≥80 % zelená, 60–80 % žltá, inak červená
+function fresnelColor(alpha) {
+  const pct = analysis.clearancePct;
+  if (analysis.blocked || pct < 60) return `rgba(255,82,82,${alpha})`;
+  if (pct < 80) return `rgba(255,193,69,${alpha})`;
+  return `rgba(61,220,132,${alpha})`;
+}
+
+// Mapovanie rezervy [dB] na farbu (heat overlay): 0 dB červená → 40 dB zelená
+function heatColor(margin) {
+  const t = clamp(margin / 40, 0, 1);
+  const hue = t * 120;
+  return margin < 0 ? 'rgba(120,20,20,0.9)' : `hsl(${hue},90%,55%)`;
+}
+
+function drawScene(time) {
+  const w = view.w, h = view.h;
+  sctx.clearRect(0, 0, w, h);
+
+  // --- Obloha: vertikálny gradient + jemné hviezdy ---
+  const sky = sctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#0a0e1c');
+  sky.addColorStop(0.55, '#101a30');
+  sky.addColorStop(1, '#16263e');
+  sctx.fillStyle = sky;
+  sctx.fillRect(0, 0, w, h);
+  const starRng = mulberry32(7);
+  sctx.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let i = 0; i < 70; i++) {
+    const px = starRng() * w, py = starRng() * h * 0.5;
+    const tw = 0.4 + 0.6 * Math.sin(time / 900 + i * 1.7) ** 2;
+    sctx.globalAlpha = 0.25 * tw;
+    sctx.fillRect(px, py, 1.4, 1.4);
+  }
+  sctx.globalAlpha = 1;
+
+  const a = analysis;
+  const txSX = sx(state.txX), rxSX = sx(state.rxX);
+  const txTipSY = sy(a.txTipY), rxTipSY = sy(a.rxTipY);
+
+  // --- 1. Fresnelova zóna (elipsoid) — kreslí sa pod terénom, terén ju prekryje ---
+  if (a.d > 1) {
+    const STEPS = 90;
+    const topPts = [], botPts = [];
+    for (let i = 0; i <= STEPS; i++) {
+      const t = i / STEPS;
+      const x = state.txX + (state.rxX - state.txX) * t;
+      const d1 = a.d * t, d2 = a.d * (1 - t);
+      const r1 = (d1 < 1 || d2 < 1) ? 0
+        : fresnelRadius(d1 / 1000, d2 / 1000, a.d / 1000, a.fGHz);
+      const losY = lerp(a.txTipY, a.rxTipY, t);
+      topPts.push([sx(x), sy(losY + r1)]);
+      botPts.push([sx(x), sy(losY - r1)]);
+    }
+    sctx.beginPath();
+    topPts.forEach(([px, py], i) => i ? sctx.lineTo(px, py) : sctx.moveTo(px, py));
+    for (let i = botPts.length - 1; i >= 0; i--) sctx.lineTo(botPts[i][0], botPts[i][1]);
+    sctx.closePath();
+    sctx.fillStyle = fresnelColor(0.13);
+    sctx.fill();
+    sctx.strokeStyle = fresnelColor(0.55);
+    sctx.setLineDash([5, 5]);
+    sctx.lineWidth = 1;
+    sctx.stroke();
+    sctx.setLineDash([]);
+  }
+
+  // --- Terén: silueta s gradientovou výplňou ---
+  sctx.beginPath();
+  sctx.moveTo(sx(0), h);
+  for (let i = 0; i < TERRAIN_SAMPLES; i++) {
+    const x = i / (TERRAIN_SAMPLES - 1) * state.spanM;
+    sctx.lineTo(sx(x), sy(terrain[i] + earthBulge(x)));
+  }
+  sctx.lineTo(sx(state.spanM), h);
+  sctx.closePath();
+  const tg = sctx.createLinearGradient(0, sy(view.yMax), 0, h);
+  tg.addColorStop(0, '#3b4d63');
+  tg.addColorStop(0.5, '#243243');
+  tg.addColorStop(1, '#121b27');
+  sctx.fillStyle = tg;
+  sctx.fill();
+  sctx.strokeStyle = 'rgba(140,180,220,0.5)';
+  sctx.lineWidth = 1.4;
+  sctx.stroke();
+
+  // --- Osi: vzdialenosť [m/km] dole, výška [m] vľavo ---
+  sctx.fillStyle = 'rgba(170,190,215,0.65)';
+  sctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+  sctx.textAlign = 'center';
+  const xStep = niceStep(state.spanM / 8);
+  for (let x = 0; x <= state.spanM + 1; x += xStep) {
+    const px = sx(x);
+    sctx.fillRect(px - 0.5, h - view.padB, 1, 5);
+    sctx.fillText(state.spanM >= 2000 ? (x / 1000) + ' km' : x + ' m', px, h - view.padB + 17);
+  }
+  sctx.textAlign = 'right';
+  const yStep = niceStep((view.yMax - view.yMin) / 6);
+  for (let y = Math.ceil(view.yMin / yStep) * yStep; y <= view.yMax; y += yStep) {
+    const py = sy(y);
+    sctx.fillStyle = 'rgba(170,190,215,0.55)';
+    sctx.fillText(y.toFixed(0) + ' m', view.padL - 8, py + 3);
+    sctx.fillStyle = 'rgba(255,255,255,0.04)';
+    sctx.fillRect(view.padL, py, w - view.padL - view.padR, 1);
+  }
+
+  // --- Spojnica LOS (priama viditeľnosť) / heat overlay ---
+  if (state.heatOverlay) {
+    // Cesta zafarbená kumulatívnou stratou: FSPL po daný bod + difrakcia za prekážkou
+    const SEG = 80;
+    for (let i = 0; i < SEG; i++) {
+      const t0 = i / SEG, t1 = (i + 1) / SEG;
+      const midT = (t0 + t1) / 2;
+      const d1 = Math.max(a.d * midT, 1);
+      const x0 = state.txX + (state.rxX - state.txX) * t0;
+      const x1 = state.txX + (state.rxX - state.txX) * t1;
+      const passedObstacle = Math.abs(a.maxVX - state.txX) < d1 && a.maxV > -0.78;
+      const p = state.txPowerDbm + state.gainTxDbi + state.gainRxDbi - state.cableLossDb
+              - fsplDb(d1 / 1000, state.freqMHz)
+              - (passedObstacle ? a.diffLossDb : 0);
+      sctx.strokeStyle = heatColor(p - budget.sens);
+      sctx.lineWidth = 3;
+      sctx.beginPath();
+      sctx.moveTo(sx(x0), sy(lerp(a.txTipY, a.rxTipY, t0)));
+      sctx.lineTo(sx(x1), sy(lerp(a.txTipY, a.rxTipY, t1)));
+      sctx.stroke();
+    }
+  } else {
+    sctx.strokeStyle = a.blocked ? 'rgba(255,82,82,0.85)' : 'rgba(120,220,255,0.85)';
+    sctx.lineWidth = 1.6;
+    sctx.setLineDash(a.blocked ? [7, 5] : []);
+    sctx.beginPath();
+    sctx.moveTo(txSX, txTipSY);
+    sctx.lineTo(rxSX, rxTipSY);
+    sctx.stroke();
+    sctx.setLineDash([]);
+  }
+
+  // --- Červené X v bode prekážky, keď terén blokuje LOS ---
+  if (a.blocked) {
+    const bx = sx(a.blockedX), by = sy(effTerrainAt(a.blockedX));
+    sctx.strokeStyle = '#ff5252';
+    sctx.lineWidth = 3;
+    sctx.beginPath();
+    sctx.moveTo(bx - 9, by - 9); sctx.lineTo(bx + 9, by + 9);
+    sctx.moveTo(bx + 9, by - 9); sctx.lineTo(bx - 9, by + 9);
+    sctx.stroke();
+    sctx.fillStyle = '#ff5252';
+    sctx.font = 'bold 10px ' + getComputedStyle(document.body).getPropertyValue('--sans');
+    sctx.textAlign = 'center';
+    sctx.fillText('OBSTRUCTED', bx, by - 16);
+  }
+
+  // --- Animovaný „pulz" signálu, keď spoj funguje ---
+  if (budget.margin >= 0 && !a.blocked) {
+    for (let k = 0; k < 2; k++) {
+      const t = ((time / 1300) + k * 0.5) % 1;
+      const px = lerp(txSX, rxSX, t), py = lerp(txTipSY, rxTipSY, t);
+      const g = sctx.createRadialGradient(px, py, 0, px, py, 14);
+      g.addColorStop(0, 'rgba(140,230,255,0.95)');
+      g.addColorStop(0.4, 'rgba(80,190,255,0.45)');
+      g.addColorStop(1, 'rgba(80,190,255,0)');
+      sctx.fillStyle = g;
+      sctx.beginPath();
+      sctx.arc(px, py, 14, 0, Math.PI * 2);
+      sctx.fill();
+    }
+  }
+
+  // --- Veže TX a RX so žiarou ---
+  drawTower('tx', txSX, txTipSY, sy(effTerrainAt(state.txX)), time);
+  drawTower('rx', rxSX, rxTipSY, sy(effTerrainAt(state.rxX)), time);
+}
+
+// Kreslenie jednej veže: stožiar, žiariaci vrchol, popisok, zvýraznenie výberu
+function drawTower(which, px, tipY, baseY, time) {
+  const isTx = which === 'tx';
+  const color = isTx ? '#4cc2ff' : '#c08bff';
+  const label = isTx ? 'TX' : 'RX';
+  const hMeters = isTx ? state.txH : state.rxH;
+
+  // stožiar
+  sctx.strokeStyle = 'rgba(220,235,255,0.8)';
+  sctx.lineWidth = 2;
+  sctx.beginPath();
+  sctx.moveTo(px, baseY);
+  sctx.lineTo(px, tipY);
+  sctx.stroke();
+  // priečky stožiara
+  sctx.lineWidth = 1;
+  sctx.strokeStyle = 'rgba(220,235,255,0.35)';
+  const rungs = Math.min(8, Math.floor((baseY - tipY) / 9));
+  for (let i = 1; i <= rungs; i++) {
+    const yy = lerp(baseY, tipY, i / (rungs + 1));
+    sctx.beginPath(); sctx.moveTo(px - 4, yy); sctx.lineTo(px + 4, yy); sctx.stroke();
+  }
+
+  // žiariaci vrchol (anténa)
+  const pulse = 0.75 + 0.25 * Math.sin(time / 420 + (isTx ? 0 : 2));
+  const glow = isTx ? 'rgba(76,194,255,' : 'rgba(192,139,255,';
+  const g = sctx.createRadialGradient(px, tipY, 0, px, tipY, 16 * pulse);
+  g.addColorStop(0, glow + '1)');
+  g.addColorStop(0.35, glow + '0.5)');
+  g.addColorStop(1, glow + '0)');
+  sctx.fillStyle = g;
+  sctx.beginPath(); sctx.arc(px, tipY, 16 * pulse, 0, Math.PI * 2); sctx.fill();
+  sctx.fillStyle = '#fff';
+  sctx.beginPath(); sctx.arc(px, tipY, 3, 0, Math.PI * 2); sctx.fill();
+
+  // krúžok okolo vybranej antény
+  if (state.selected === which) {
+    sctx.strokeStyle = color;
+    sctx.setLineDash([3, 3]);
+    sctx.lineWidth = 1.4;
+    sctx.beginPath(); sctx.arc(px, tipY, 11, 0, Math.PI * 2); sctx.stroke();
+    sctx.setLineDash([]);
+  }
+
+  // popisok s výškou antény
+  sctx.fillStyle = color;
+  sctx.font = 'bold 11px ' + getComputedStyle(document.body).getPropertyValue('--sans');
+  sctx.textAlign = 'center';
+  sctx.fillText(label, px, tipY - 22);
+  sctx.fillStyle = 'rgba(200,215,235,0.75)';
+  sctx.font = '9.5px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+  sctx.fillText(hMeters + ' m', px, tipY - 11);
+}
+
+/* ===================== GRAF: RX VÝKON vs. VZDIALENOSŤ ===================== */
+
+const chartCanvas = document.getElementById('chart');
+const cctx = chartCanvas.getContext('2d');
+
+function drawChart() {
+  const w = chartCanvas.clientWidth, h = chartCanvas.clientHeight;
+  if (w === 0 || !sweep || sweep.points.length === 0) return;
+  cctx.clearRect(0, 0, w, h);
+
+  const padL = 42, padR = 8, padT = 8, padB = 22;
+  const pts = sweep.points;
+
+  // Rozsah osi Y: od -160 dBm po maximum krivky (zaokrúhlené na 10)
+  let pMax = -Infinity;
+  for (const p of pts) pMax = Math.max(pMax, p.power);
+  const yTop = Math.ceil((pMax + 6) / 10) * 10;
+  const yBot = -160;
+  const X = d => padL + (d / sweep.maxD) * (w - padL - padR);
+  const Y = p => padT + (yTop - p) / (yTop - yBot) * (h - padT - padB);
+
+  // mriežka + popisky osi Y
+  cctx.font = '9px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+  cctx.textAlign = 'right';
+  for (let p = yTop; p >= yBot; p -= 30) {
+    cctx.fillStyle = 'rgba(255,255,255,0.06)';
+    cctx.fillRect(padL, Y(p), w - padL - padR, 1);
+    cctx.fillStyle = 'rgba(160,180,205,0.6)';
+    cctx.fillText(p.toFixed(0), padL - 5, Y(p) + 3);
+  }
+  // popisky osi X
+  cctx.textAlign = 'center';
+  const xStep = niceStep(sweep.maxD / 5);
+  for (let d = 0; d <= sweep.maxD; d += xStep) {
+    cctx.fillStyle = 'rgba(160,180,205,0.6)';
+    cctx.fillText(sweep.maxD >= 2000 ? (d / 1000) + 'k' : d.toFixed(0), X(d), h - 8);
+  }
+
+  // prahy citlivosti pre všetky SF (prerušované čiary, popisky striedavo aby sa neprekrývali)
+  let sfIdx = 0;
+  for (const sf of Object.keys(SF_TABLE)) {
+    const s = SF_TABLE[sf].sens;
+    const yy = Y(s);
+    const isCur = +sf === state.sf;
+    cctx.strokeStyle = isCur ? 'rgba(255,193,69,0.8)' : 'rgba(255,255,255,0.16)';
+    cctx.setLineDash([4, 4]);
+    cctx.lineWidth = 1;
+    cctx.beginPath(); cctx.moveTo(padL, yy); cctx.lineTo(w - padR, yy); cctx.stroke();
+    cctx.setLineDash([]);
+    cctx.fillStyle = isCur ? 'rgba(255,193,69,0.9)' : 'rgba(170,190,215,0.45)';
+    cctx.textAlign = 'left';
+    cctx.fillText('SF' + sf, w - padR - 26 - (sfIdx % 2) * 30, yy - 2);
+    sfIdx++;
+  }
+
+  // krivka prijatého výkonu
+  cctx.strokeStyle = '#4cc2ff';
+  cctx.lineWidth = 1.8;
+  cctx.beginPath();
+  pts.forEach((p, i) => {
+    const px = X(p.dist), py = clamp(Y(p.power), padT, h - padB);
+    i ? cctx.lineTo(px, py) : cctx.moveTo(px, py);
+  });
+  cctx.stroke();
+
+  // zvislá značka aktuálnej polohy RX
+  const curD = Math.abs(state.rxX - state.txX);
+  cctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  cctx.setLineDash([2, 3]);
+  cctx.beginPath(); cctx.moveTo(X(curD), padT); cctx.lineTo(X(curD), h - padB); cctx.stroke();
+  cctx.setLineDash([]);
+  cctx.fillStyle = 'rgba(220,235,255,0.85)';
+  cctx.textAlign = 'center';
+  cctx.fillText('RX', clamp(X(curD), padL + 8, w - 16), padT + 8);
+}
+
+/* ===================== UI: VÝPIS HODNÔT ===================== */
+
+const $ = id => document.getElementById(id);
+
+function updateReadout() {
+  const a = analysis, b = budget;
+  $('roDist').textContent = fmtDist(a.d);
+  $('roFspl').textContent = a.fsplDb.toFixed(1) + ' dB';
+  $('roDiff').textContent = a.diffLossDb > 0.05 ? '−' + a.diffLossDb.toFixed(1) + ' dB' : '0 dB';
+  const fresPct = clamp(a.clearancePct, 0, 100);
+  const fresEl = $('roFres');
+  fresEl.textContent = a.blocked ? 'blocked' : fresPct.toFixed(0) + ' %';
+  fresEl.className = (a.blocked || a.clearancePct < 60) ? 'c-bad' : a.clearancePct < 80 ? 'c-warn' : 'c-good';
+  $('roRx').textContent = b.rxPower.toFixed(1) + ' dBm';
+  $('roSens').textContent = b.sens + ' dBm (SF' + state.sf + ')';
+  $('roRate').textContent = b.rate >= 1000 ? (b.rate / 1000).toFixed(2) + ' kbps' : b.rate + ' bps';
+
+  const mv = $('marginVal'), st = $('linkStatus');
+  mv.textContent = (b.margin >= 0 ? '+' : '') + b.margin.toFixed(1) + ' dB';
+  const cls = b.margin >= 10 ? 'c-good' : b.margin >= 0 ? 'c-warn' : 'c-bad';
+  mv.className = cls; st.className = cls;
+  st.textContent = b.margin >= 10 ? '● LINK OK' : b.margin >= 0 ? '● MARGINAL' : '✕ NO LINK';
+}
+
+// Tabuľka SF: citlivosť + rýchlosť, klik vyberá SF
+function buildSfTable() {
+  const tbl = $('sfTable');
+  for (const sf of Object.keys(SF_TABLE)) {
+    const tr = document.createElement('tr');
+    tr.dataset.sf = sf;
+    tr.innerHTML = `<td>SF${sf}</td><td>${SF_TABLE[sf].sens} dBm</td><td>${SF_TABLE[sf].rate} bps</td>`;
+    tr.addEventListener('click', () => { state.sf = +sf; $('sf').value = sf; syncSfTable(); paramsDirty = true; });
+    tbl.appendChild(tr);
+  }
+  syncSfTable();
+}
+function syncSfTable() {
+  for (const tr of $('sfTable').querySelectorAll('tr[data-sf]'))
+    tr.classList.toggle('sel', +tr.dataset.sf === state.sf);
+}
+
+/* ===================== UI: VSTUPY A INTERAKCIA ===================== */
+
+// Mapovanie posuvníka vzdialenosti (logaritmická stupnica 100 m … 50 km)
+const sliderToSpan = t => 100 * Math.pow(500, t / 1000);
+const spanToSlider = d => Math.round(1000 * Math.log(d / 100) / Math.log(500));
+
+function bindInputs() {
+  $('preset').addEventListener('change', e => { state.preset = e.target.value; generateTerrain(); });
+  $('rough').addEventListener('input', e => {
+    state.roughness = +e.target.value;
+    $('roughVal').textContent = state.roughness.toFixed(2);
+    generateTerrain();
+  });
+  $('seed').addEventListener('change', e => { state.seed = e.target.value; generateTerrain(); });
+  $('regenBtn').addEventListener('click', () => { state.seed = $('seed').value; generateTerrain(); });
+  $('diceBtn').addEventListener('click', randomizeSeed);
+
+  $('dist').addEventListener('input', e => {
+    // Zachovať relatívne polohy TX/RX pri zmene rozsahu
+    const fTx = state.txX / state.spanM, fRx = state.rxX / state.spanM;
+    state.spanM = Math.round(sliderToSpan(+e.target.value));
+    state.txX = fTx * state.spanM;
+    state.rxX = fRx * state.spanM;
+    enforceSeparation();
+    $('distVal').textContent = fmtDist(state.spanM);
+    paramsDirty = true;
+  });
+  $('curv').addEventListener('change', e => { state.curvature = e.target.checked; paramsDirty = true; });
+
+  $('txH').addEventListener('input', e => { state.txH = +e.target.value; $('txHVal').textContent = state.txH + ' m'; paramsDirty = true; });
+  $('rxH').addEventListener('input', e => { state.rxH = +e.target.value; $('rxHVal').textContent = state.rxH + ' m'; paramsDirty = true; });
+
+  $('freq').addEventListener('change', e => { state.freqMHz = +e.target.value; paramsDirty = true; });
+  $('txPwr').addEventListener('input', e => { state.txPowerDbm = +e.target.value || 0; paramsDirty = true; });
+  $('gTx').addEventListener('input', e => { state.gainTxDbi = +e.target.value || 0; paramsDirty = true; });
+  $('gRx').addEventListener('input', e => { state.gainRxDbi = +e.target.value || 0; paramsDirty = true; });
+  $('cable').addEventListener('input', e => { state.cableLossDb = +e.target.value || 0; paramsDirty = true; });
+  $('sf').addEventListener('change', e => { state.sf = +e.target.value; syncSfTable(); paramsDirty = true; });
+  $('heat').addEventListener('change', e => { state.heatOverlay = e.target.checked; });
+}
+
+function randomizeSeed() {
+  state.seed = Math.random().toString(36).slice(2, 9);
+  $('seed').value = state.seed;
+  generateTerrain();
+}
+
+// Min. odstup TX–RX a hranice profilu
+function enforceSeparation() {
+  state.txX = clamp(state.txX, 0, state.spanM);
+  state.rxX = clamp(state.rxX, 0, state.spanM);
+  if (Math.abs(state.rxX - state.txX) < MIN_SEPARATION) {
+    if (state.rxX >= state.txX) state.rxX = Math.min(state.spanM, state.txX + MIN_SEPARATION);
+    else state.rxX = Math.max(0, state.txX - MIN_SEPARATION);
+  }
+}
+
+// --- Ťahanie veží myšou / dotykom ---
+let drag = null; // { which, dx, dy } — ofset úchopu vo svetových súradniciach
+
+function towerHit(px, py) {
+  // Test zásahu veže: blízko stožiara alebo vrcholu (v pixeloch)
+  for (const which of ['tx', 'rx']) {
+    const x = which === 'tx' ? state.txX : state.rxX;
+    const tipY = which === 'tx' ? analysis.txTipY : analysis.rxTipY;
+    const baseY = effTerrainAt(x);
+    const sxp = sx(x);
+    if (Math.abs(px - sxp) < 22 && py > sy(tipY) - 26 && py < sy(baseY) + 14) return which;
+  }
+  return null;
+}
+
+function bindPointer() {
+  sceneCanvas.addEventListener('pointerdown', e => {
+    const rect = sceneCanvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const which = towerHit(px, py);
+    if (which) {
+      state.selected = which;
+      const x = which === 'tx' ? state.txX : state.rxX;
+      const tipY = which === 'tx' ? analysis.txTipY : analysis.rxTipY;
+      drag = { which, dx: x - invSx(px), dy: tipY - invSy(py) };
+      sceneCanvas.setPointerCapture(e.pointerId);
+      sceneCanvas.style.cursor = 'grabbing';
+    }
+  });
+  sceneCanvas.addEventListener('pointermove', e => {
+    const rect = sceneCanvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    if (!drag) {
+      sceneCanvas.style.cursor = towerHit(px, py) ? 'grab' : 'crosshair';
+      return;
+    }
+    // Vrchol antény nasleduje kurzor: X = poloha, Y = výška antény nad terénom
+    const wx = clamp(invSx(px) + drag.dx, 0, state.spanM);
+    const tipY = invSy(py) + drag.dy;
+    const hgt = clamp(Math.round(tipY - effTerrainAt(wx)), 1, 100);
+    if (drag.which === 'tx') {
+      state.txX = wx; state.txH = hgt;
+      $('txH').value = hgt; $('txHVal').textContent = hgt + ' m';
+    } else {
+      state.rxX = wx; state.rxH = hgt;
+      $('rxH').value = hgt; $('rxHVal').textContent = hgt + ' m';
+    }
+    enforceSeparation();
+    paramsDirty = true; // prepočet sa vykoná v najbližšom animačnom snímku
+  });
+  const endDrag = () => { drag = null; sceneCanvas.style.cursor = 'crosshair'; };
+  sceneCanvas.addEventListener('pointerup', endDrag);
+  sceneCanvas.addEventListener('pointercancel', endDrag);
+}
+
+// --- Klávesnica: šípky = poloha/výška vybranej antény, R = nový terén ---
+function bindKeyboard() {
+  window.addEventListener('keydown', e => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+
+    const sel = state.selected;
+    const stepH = e.shiftKey ? 5 : 1;
+    const stepX = Math.max(10, state.spanM / 200);
+    let handled = true;
+
+    switch (e.key) {
+      case 'ArrowUp':
+        if (sel === 'tx') { state.txH = clamp(state.txH + stepH, 1, 100); $('txH').value = state.txH; $('txHVal').textContent = state.txH + ' m'; }
+        else { state.rxH = clamp(state.rxH + stepH, 1, 100); $('rxH').value = state.rxH; $('rxHVal').textContent = state.rxH + ' m'; }
+        break;
+      case 'ArrowDown':
+        if (sel === 'tx') { state.txH = clamp(state.txH - stepH, 1, 100); $('txH').value = state.txH; $('txHVal').textContent = state.txH + ' m'; }
+        else { state.rxH = clamp(state.rxH - stepH, 1, 100); $('rxH').value = state.rxH; $('rxHVal').textContent = state.rxH + ' m'; }
+        break;
+      case 'ArrowLeft':
+        if (sel === 'tx') state.txX -= stepX; else state.rxX -= stepX;
+        enforceSeparation();
+        break;
+      case 'ArrowRight':
+        if (sel === 'tx') state.txX += stepX; else state.rxX += stepX;
+        enforceSeparation();
+        break;
+      case 'r': case 'R':
+        randomizeSeed();
+        break;
+      case 'Tab':
+        state.selected = sel === 'tx' ? 'rx' : 'tx';
+        break;
+      default:
+        handled = false;
+    }
+    if (handled) { e.preventDefault(); paramsDirty = true; }
+  });
+}
+
+/* ===================== VEĽKOSŤ PLÁTNA A HLAVNÁ SLUČKA ===================== */
+
+// Prispôsobenie plátien rozlíšeniu obrazovky (HiDPI)
+function resizeCanvases() {
+  const dpr = window.devicePixelRatio || 1;
+  for (const [cv, ctx] of [[sceneCanvas, sctx], [chartCanvas, cctx]]) {
+    const r = cv.getBoundingClientRect();
+    cv.width = Math.round(r.width * dpr);
+    cv.height = Math.round(r.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  paramsDirty = true;
+}
+
+// Hlavná slučka: fyzika sa prepočítava len pri zmene, scéna sa kreslí každý snímok
+function frame(time) {
+  if (paramsDirty) recompute();
+  computeView();
+  drawScene(time);
+  requestAnimationFrame(frame);
+}
+
+/* ===================== ŠTART ===================== */
+
+generateTerrain();
+buildSfTable();
+bindInputs();
+bindPointer();
+bindKeyboard();
+window.addEventListener('resize', resizeCanvases);
+resizeCanvases();
+recompute();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
